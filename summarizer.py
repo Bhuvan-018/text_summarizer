@@ -78,8 +78,13 @@ def build_compute_metrics(tokenizer):
     def postprocess_text(preds, labels):
         preds = [pred.strip() for pred in preds]
         labels = [label.strip() for label in labels]
-        preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
-        labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+        try:
+            preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+            labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+        except LookupError:
+            # Fallback if punkt resources are unavailable in the runtime.
+            preds = [pred if pred else "" for pred in preds]
+            labels = [label if label else "" for label in labels]
         return preds, labels
 
     def compute_metrics(eval_preds):
@@ -127,6 +132,7 @@ def build_compute_metrics(tokenizer):
 
 def train_and_evaluate(config: PipelineConfig):
     nltk.download("punkt", quiet=True)
+    nltk.download("punkt_tab", quiet=True)
     model_name = MODEL_CATALOG[config.model_key]
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
