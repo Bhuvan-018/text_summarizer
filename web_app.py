@@ -14,17 +14,25 @@ def load_model(model_path: str):
     return tokenizer, model
 
 
+def should_use_t5_prefix(tokenizer, model, model_path: str) -> bool:
+    name = (getattr(tokenizer, "name_or_path", "") or "").lower()
+    model_type = getattr(getattr(model, "config", None), "model_type", "")
+    model_type = model_type.lower() if isinstance(model_type, str) else ""
+    return "t5" in name or model_type == "t5" or "t5" in model_path.lower()
+
+
 def summarize_text(
     text: str,
     tokenizer,
     model,
+    model_path: str,
     max_input_length: int,
     max_output_length: int,
     min_output_length: int,
     num_beams: int,
 ):
     prompt = text.strip()
-    if tokenizer.name_or_path.startswith("google-t5/") or "t5" in tokenizer.name_or_path.lower():
+    if should_use_t5_prefix(tokenizer=tokenizer, model=model, model_path=model_path):
         prompt = f"summarize: {prompt}"
 
     inputs = tokenizer(prompt, return_tensors="pt", max_length=max_input_length, truncation=True)
@@ -58,6 +66,7 @@ if st.button("Summarize", type="primary"):
                 text=user_input,
                 tokenizer=tokenizer,
                 model=model,
+                model_path=model_path,
                 max_input_length=max_input_length,
                 max_output_length=max_output_length,
                 min_output_length=min_output_length,

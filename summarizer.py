@@ -1,4 +1,5 @@
 import argparse
+import inspect
 from dataclasses import dataclass
 
 import torch
@@ -71,6 +72,14 @@ def build_preprocess(tokenizer, text_col: str, summary_col: str, max_input_lengt
     return preprocess_function
 
 
+def should_use_t5_prefix(tokenizer, model=None, model_path: str | None = None) -> bool:
+    name = (getattr(tokenizer, "name_or_path", "") or "").lower()
+    model_type = getattr(getattr(model, "config", None), "model_type", "")
+    model_type = model_type.lower() if isinstance(model_type, str) else ""
+    path_text = (model_path or "").lower()
+    return "t5" in name or model_type == "t5" or "t5" in path_text
+
+
 def build_compute_metrics(tokenizer):
     rouge_metric = evaluate.load("rouge")
     bleu_metric = evaluate.load("bleu")
@@ -111,17 +120,21 @@ def build_compute_metrics(tokenizer):
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
         rouge_result = rouge_metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
 
-        bleu_result = bleu_metric.compute(
-            predictions=[pred.split() for pred in decoded_preds],
-            references=[[ref.split()] for ref in decoded_labels],
-        )
+        try:
+            bleu_result = bleu_metric.compute(
+                predictions=decoded_preds,
+                references=[[ref] for ref in decoded_labels],
+            )
+            bleu_score = round(float(bleu_result["bleu"]), 4)
+        except Exception:
+            bleu_score = 0.0
 
         result = {
             "rouge1": round(rouge_result["rouge1"], 4),
             "rouge2": round(rouge_result["rouge2"], 4),
             "rougeL": round(rouge_result["rougeL"], 4),
             "rougeLsum": round(rouge_result["rougeLsum"], 4),
-            "bleu": round(bleu_result["bleu"], 4),
+            "bleu": bleu_score,
         }
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
         result["gen_len"] = round(float(np.mean(prediction_lens)), 2)
@@ -148,34 +161,44 @@ def train_and_evaluate(config: PipelineConfig):
     tokenized_dataset = dataset.map(preprocess, batched=True, remove_columns=dataset["train"].column_names)
 
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=config.output_dir,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        logging_strategy="steps",
-        logging_steps=50,
-        learning_rate=2e-5,
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        weight_decay=0.01,
-        save_total_limit=2,
-        num_train_epochs=1,
-        predict_with_generate=True,
-        generation_max_length=config.max_target_length,
-        fp16=False,
-        push_to_hub=False,
-        report_to="none",
-    )
+    training_kwargs = {
+        "output_dir": config.output_dir,
+        "save_strategy": "epoch",
+        "logging_strategy": "steps",
+        "logging_steps": 50,
+        "learning_rate": 2e-5,
+        "per_device_train_batch_size": 4,
+        "per_device_eval_batch_size": 4,
+        "weight_decay": 0.01,
+        "save_total_limit": 2,
+        "num_train_epochs": 1,
+        "predict_with_generate": True,
+        "generation_max_length": config.max_target_length,
+        "fp16": False,
+        "push_to_hub": False,
+        "report_to": "none",
+    }
+    ta_params = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
+    if "eval_strategy" in ta_params:
+        training_kwargs["eval_strategy"] = "epoch"
+    else:
+        training_kwargs["evaluation_strategy"] = "epoch"
+    training_args = Seq2SeqTrainingArguments(**training_kwargs)
 
-    trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["validation"],
-        processing_class=tokenizer,
-        data_collator=data_collator,
-        compute_metrics=build_compute_metrics(tokenizer),
-    )
+    trainer_kwargs = {
+        "model": model,
+        "args": training_args,
+        "train_dataset": tokenized_dataset["train"],
+        "eval_dataset": tokenized_dataset["validation"],
+        "data_collator": data_collator,
+        "compute_metrics": build_compute_metrics(tokenizer),
+    }
+    trainer_params = inspect.signature(Seq2SeqTrainer.__init__).parameters
+    if "processing_class" in trainer_params:
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    trainer = Seq2SeqTrainer(**trainer_kwargs)
 
     trainer.train()
     eval_metrics = trainer.evaluate(eval_dataset=tokenized_dataset["test"], metric_key_prefix="test")
@@ -190,7 +213,7 @@ def summarize(model_path: str, text: str, max_input_length: int = 512, max_outpu
     model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
 
     prompt = text.strip()
-    if tokenizer.name_or_path.startswith("google-t5/") or "t5" in model_path.lower():
+    if should_use_t5_prefix(tokenizer=tokenizer, model=model, model_path=model_path):
         prompt = f"summarize: {prompt}"
 
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_length)
