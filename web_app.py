@@ -9,7 +9,10 @@ st.caption("Paste a long article and generate a concise abstractive summary.")
 
 @st.cache_resource
 def load_model(model_path: str):
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    except ValueError:
+        tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
     return tokenizer, model
 
@@ -49,7 +52,7 @@ def summarize_text(
 
 with st.sidebar:
     st.header("Model Settings")
-    model_path = st.text_input("Model path", value="./finetuned_summarizer")
+    model_path = st.text_input("Model path", value="./finetuned_summarizer_clean")
     max_input_length = st.slider("Max input length", min_value=128, max_value=1024, value=512, step=64)
     max_output_length = st.slider("Max output length", min_value=32, max_value=256, value=128, step=8)
     min_output_length = st.slider("Min output length", min_value=8, max_value=128, value=30, step=2)

@@ -10,6 +10,7 @@ manual_model/
 manual_cache/
 model_cache/
 finetuned_summarizer/
+finetuned_summarizer_clean/
 results/
 logs/
 
