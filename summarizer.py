@@ -42,6 +42,8 @@ class PipelineConfig:
     train_samples: int | None = 20000
     val_samples: int | None = 2000
     test_samples: int | None = 2000
+    num_train_epochs: float = 1.0
+    resume_from_checkpoint: str | None = None
 
 
 def get_dataset(config: PipelineConfig) -> tuple[DatasetDict, str, str]:
@@ -171,7 +173,7 @@ def train_and_evaluate(config: PipelineConfig):
         "per_device_eval_batch_size": 4,
         "weight_decay": 0.01,
         "save_total_limit": 2,
-        "num_train_epochs": 1,
+        "num_train_epochs": config.num_train_epochs,
         "predict_with_generate": True,
         "generation_max_length": config.max_target_length,
         "fp16": False,
@@ -200,7 +202,7 @@ def train_and_evaluate(config: PipelineConfig):
         trainer_kwargs["tokenizer"] = tokenizer
     trainer = Seq2SeqTrainer(**trainer_kwargs)
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=config.resume_from_checkpoint)
     eval_metrics = trainer.evaluate(eval_dataset=tokenized_dataset["test"], metric_key_prefix="test")
 
     trainer.save_model(config.output_dir)
@@ -239,6 +241,8 @@ def parse_args():
     parser.add_argument("--train_samples", type=int, default=20000)
     parser.add_argument("--val_samples", type=int, default=2000)
     parser.add_argument("--test_samples", type=int, default=2000)
+    parser.add_argument("--num_train_epochs", type=float, default=1.0)
+    parser.add_argument("--resume_from_checkpoint", default=None)
     parser.add_argument("--model_path", default="./finetuned_summarizer")
     parser.add_argument("--text", default="")
     return parser.parse_args()
@@ -256,6 +260,8 @@ if __name__ == "__main__":
             train_samples=args.train_samples,
             val_samples=args.val_samples,
             test_samples=args.test_samples,
+            num_train_epochs=args.num_train_epochs,
+            resume_from_checkpoint=args.resume_from_checkpoint,
         )
         train_and_evaluate(cfg)
     else:
