@@ -1,0 +1,10 @@
+torch
+transformers
+datasets
+evaluate
+nltk
+rouge_score
+sacrebleu
+sentencepiece
+accelerate
+streamlit

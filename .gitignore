@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+
+manual_model/
+manual_cache/
+model_cache/
+finetuned_summarizer/
+results/
+logs/
+
+.history-memo/
+.vscode/
