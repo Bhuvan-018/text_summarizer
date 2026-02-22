@@ -86,10 +86,22 @@ def build_compute_metrics(tokenizer):
         preds, labels = eval_preds
         if isinstance(preds, tuple):
             preds = preds[0]
+        preds = np.asarray(preds)
+        labels = np.asarray(labels)
 
-        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        # Newer transformers versions can return logits/float arrays here.
+        if preds.ndim == 3:
+            preds = np.argmax(preds, axis=-1)
+
+        vocab_max = len(tokenizer) - 1
+        preds = np.where(preds < 0, tokenizer.pad_token_id, preds)
+        preds = np.clip(preds, 0, vocab_max).astype(np.int64)
+
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+        labels = np.clip(labels, 0, vocab_max).astype(np.int64)
+
+        decoded_preds = tokenizer.batch_decode(preds.tolist(), skip_special_tokens=True)
+        decoded_labels = tokenizer.batch_decode(labels.tolist(), skip_special_tokens=True)
 
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
         rouge_result = rouge_metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
